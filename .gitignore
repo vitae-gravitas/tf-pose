@@ -3,3 +3,4 @@
 node_modules
 frames
 .DS_STORE
+*.MOV.json

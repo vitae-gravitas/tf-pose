@@ -9,9 +9,9 @@ const {createCanvas, loadImage} = require('canvas');
 async function analyze(vidLocation) {
     const net = await posenet.load({
         architecture: 'ResNet50',
-        outputStride: 32,
-        inputResolution: 481,
-        quantBytes: 2
+        outputStride: 16,
+        inputResolution: 801,
+        quantBytes: 4
     });
     const vid = await new ffmpeg(vidLocation);
     const skip = 3;

@@ -4,6 +4,7 @@ const posenet = require('@tensorflow-models/posenet');
 const ffmpeg = require('ffmpeg');
 const fs = require('fs');
 const {createCanvas, loadImage} = require('canvas');
+const _ = require('lodash');
 
 const partToId = {
     nose: 0,
@@ -50,24 +51,44 @@ async function analyze(vidLocation, skip = 3) {
             w, h
         },
     };
-    const allPoses = [];
+
+    let keypoints = _.keyBy((await getPose(frames.shift(), net, w, h)).keypoints, "part");
+    const allPoses = [keypoints];
     for (const frame of frames) {
-        const canvas = createCanvas(w, h);
-        const ctx = canvas.getContext('2d');
-        const image = await loadImage(frame);
-        ctx.drawImage(image, 0, 0);
-        let poses = await net.estimateMultiplePoses(ctx.canvas);
-        poses = poses.map(pose => // Serialize so JSON isn't huge
-            [
-                pose.score,
-                pose.keypoints.map(keypoint =>
-                    [partToId[keypoint.part], Math.round(keypoint.score, 3), Math.round(keypoint.position.x, 6), Math.round(keypoint.position.y, 6)])
-            ]);
-        allPoses.push(poses);
-        console.log(frame);
+        const k2 = _.keyBy((await getPose(frame, net, w, h)).keypoints, "part");
+        const allParts = _.union(Object.keys(keypoints), Object.keys(k2));
+        keypoints = allParts.map(part => {
+            if (!(part in keypoints)) {
+                return k2[part];
+            } else if (!(part in k2)) {
+                return keypoints[part];
+            } else {
+                const hist = keypoints[part];
+                const newKeypoint = k2[part];
+                const newX = (newKeypoint.position.x * newKeypoint.score) + hist.position.x * (1-newKeypoint.score);
+                const newY = (newKeypoint.position.y * newKeypoint.score) + hist.position.y * (1-newKeypoint.score);
+                return {
+                    part,
+                    position: {
+                        x: newX,
+                        y: newY
+                    }
+                }
+            }
+        });
+        keypoints = _.keyBy(keypoints, "part");
+        allPoses.push(keypoints);
     }
     analysisResult.poses = allPoses;
     fs.writeFileSync(`${vidLocation}.json`, JSON.stringify(analysisResult), 'utf8');
+}
+
+async function getPose(frame, net, w, h) {
+    const canvas = createCanvas(w, h);
+    const ctx = canvas.getContext('2d');
+    const image = await loadImage(frame);
+    ctx.drawImage(image, 0, 0);
+    return await net.estimateSinglePose(ctx.canvas);
 }
 
 const args = process.argv.slice(2);
